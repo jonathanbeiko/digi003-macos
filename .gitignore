@@ -1,0 +1,8 @@
+# build output
+build/
+# compiled test tools (sources are tracked)
+tools/*
+!tools/*.c
+# macOS
+.DS_Store
+*.wav
