@@ -20,7 +20,7 @@ It turns the 003 into:
 | Should work (same protocol, untested) | 002, 002 Rack, 003 (console), 003 Rack+ |
 | Sample rates | 44.1 and 48 kHz (88.2/96 kHz not implemented yet) |
 | Verified | duplex audio, ADAT clock lock, preamps → ADAT, MIDI in/out, sleep/wake, reboot, hot-plug, 2-minute latency stability (0 late refills) |
-| UI language | the menu bar app is currently in **Spanish** (English welcome as a contribution) |
+| UI language | menu bar app in **English and Spanish** (follows the Mac's language; choose per app in System Settings → General → Language & Region → Applications) |
 
 ## Requirements
 
@@ -39,7 +39,7 @@ cd digi003-macos
 open ~/Applications/"Digi 003.app"
 ```
 
-"Digi 003 Rack" should now appear in Audio MIDI Setup. In the menu bar app, enable **"Abrir al iniciar sesión"** (open at login).
+"Digi 003 Rack" should now appear in Audio MIDI Setup. In the menu bar app, enable **Open at login**.
 
 **Keep the menu bar app running.** It provides the MIDI ports. It also holds a silent connection to the driver: without any client, macOS throttles the driver's host process and the 003's real-time stream would miss deadlines, which shows up as latency jumps and clicks.
 
@@ -48,7 +48,7 @@ To remove everything: `./uninstall-driver.command`.
 ## Using it as a preamp expander (ADAT)
 
 1. Connect **003 OPTICAL OUT → your interface's ADAT IN**, and **interface ADAT OUT → 003 OPTICAL IN**. The second cable carries the clock.
-2. In the menu bar app set **Reloj (clock) → ADAT** and **Salida ADAT → Previos 1-8**. The 003 then follows your interface's sample rate automatically.
+2. In the menu bar app set **Clock → ADAT** and **ADAT output → Preamps 1-8**. The 003 then follows your interface's sample rate automatically.
 3. Record the 003's inputs from your interface's ADAT 1-8.
 
 Measured offset of the 003 preamps arriving over ADAT, versus the main interface's own inputs (Apollo x8p, cross-correlation, constant across runs):
@@ -85,7 +85,7 @@ It also tells apart "no FireWire adapter", "003 off", "**003 hung**" and "connec
 |---|---|
 | `engine/` | Isochronous streaming engine built on IOFireWireLib + NuDCL. It handles CIP/AM824, the 003's "double-oh-three" output scrambling, mirroring of the device's packet cadence (the 003 recovers its media clock from it), a host-time clock model for Core Audio timestamps, the ADAT preamp loopback and MIDI. It runs on a time-constraint (real-time) thread. |
 | `driver/` | AudioServerPlugIn (`Digi003.driver`). It runs inside the sandboxed Core Audio driver host; `AudioServerPlugIn_IOKitUserClients` grants it the FireWire user client. It stores settings in HAL storage and handles sleep/wake and hot-plug, plus a watchdog for stalls, clock loss and rate changes. Custom properties `d3st`/`d3lv`/`d3rt`/`d3ll`/`d3op`/`d3rs`/`d3ka`/`d3mi`/`d3mo` talk to the app. |
-| `menubar/` | Swift menu bar app, the Core MIDI bridge and the keep-alive client. |
+| `menubar/` | Swift menu bar app (English/Spanish), the Core MIDI bridge and the keep-alive client. `--print-menu` dumps the menu to the terminal. |
 | `tools/` | Diagnostics: `d003probe` (register dump), `d003test`/`d003loop` (engine without Core Audio), `halharness` (loads the plug-in with a fake host), `d3ctl` (driver properties), `latxc` (loop latency by cross-correlation), `tsdrift`, `clockcmp`, `chpeak`, `midimon`, `mkaggregate`. |
 | `reference/linux-digi00x/` | The Linux driver sources this protocol comes from (GPL-2.0). |
 

@@ -9,6 +9,15 @@ import CoreMIDI
 import IOKit.pwr_mgt
 import UserNotifications
 
+// MARK: - Language
+// Spanish when the Mac's preferred language is Spanish, English otherwise.
+let isSpanish = (Locale.preferredLanguages.first ?? "en").hasPrefix("es") || ProcessInfo.processInfo.environment["DIGI003_LANG"] == "es"
+let headless = CommandLine.arguments.contains("--print-menu")   // menu dump only: touch no MIDI or audio
+func L(_ es: String, _ en: String) -> String {
+    if let forced = ProcessInfo.processInfo.environment["DIGI003_LANG"] { return forced == "es" ? es : en }
+    return isSpanish ? es : en
+}
+
 // MARK: - Core Audio helpers
 
 func fourCC(_ s: String) -> AudioObjectPropertySelector { s.utf8.reduce(0) { ($0 << 8) | UInt32($1) } }
@@ -124,7 +133,7 @@ final class MeterView: NSView {
             let s = "\(Int(db))" as NSString
             s.draw(at: NSPoint(x: 0, y: bounds.height - top - barH + y(db) - 5), withAttributes: label)
         }
-        let cap = "Entradas analógicas (clic = borrar clip)" as NSString
+        let cap = L("Entradas analógicas (clic = borrar clip)", "Analog inputs (click = clear clip)") as NSString
         cap.draw(at: NSPoint(x: left, y: 0), withAttributes: label)
     }
 }
@@ -338,7 +347,7 @@ final class FireWireHealth {
 
 // MARK: - App
 
-let clockNames = ["Interno", "S/PDIF", "ADAT", "Word Clock"]
+let clockNames = [L("Interno", "Internal"), "S/PDIF", "ADAT", "Word Clock"]
 let agentLabel = "io.github.jonathanbeiko.digi003.menu"
 let agentURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(agentLabel).plist")
 let defaults = UserDefaults.standard
@@ -364,8 +373,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         if notifyOn { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
-        if midiOn { midi.start() }
+        if midiOn && !headless { midi.start() }
         tick()
+        if CommandLine.arguments.contains("--print-menu") {     // headless check of the menu texts
+            build()
+            func dump(_ m: NSMenu, _ indent: String) {
+                for it in m.items {
+                    if it.isSeparatorItem { print(indent + "────"); continue }
+                    if it.view != nil { print(indent + "[medidores / meters]"); continue }
+                    print(indent + (it.state == .on ? "✓ " : "  ") + it.title)
+                    if let sub = it.submenu { dump(sub, indent + "    ") }
+                }
+            }
+            dump(menu, ""); print("ícono / icon: " + (item.button?.toolTip ?? ""))
+            exit(0)
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer!, forMode: .common)
     }
@@ -382,25 +404,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         bus = health.evaluate(halPresent: present, wantStream: route != 0 || midi.running, streaming: streaming)
 
         let symbol: String, tip: String
-        if bus == .hung || bus == .notResponding { symbol = "exclamationmark.octagon"; tip = "003: no responde, apágalo y préndelo" }
-        else if bus == .noAdapter { symbol = "waveform.slash"; tip = "003: no hay adaptador FireWire" }
-        else if !present { symbol = "waveform.slash"; tip = "003: no conectado" }
-        else if !locked { symbol = "exclamationmark.triangle"; tip = "003: sin reloj externo" }
-        else if streaming { symbol = "waveform.circle.fill"; tip = "003: transmitiendo" }
-        else { symbol = "waveform.circle"; tip = "003: conectado, en reposo" }
+        if bus == .hung || bus == .notResponding { symbol = "exclamationmark.octagon"; tip = L("003: no responde, apágalo y préndelo", "003: not responding, power-cycle it") }
+        else if bus == .noAdapter { symbol = "waveform.slash"; tip = L("003: no hay adaptador FireWire", "003: no FireWire adapter") }
+        else if !present { symbol = "waveform.slash"; tip = L("003: no conectado", "003: not connected") }
+        else if !locked { symbol = "exclamationmark.triangle"; tip = L("003: sin reloj externo", "003: no external clock") }
+        else if streaming { symbol = "waveform.circle.fill"; tip = L("003: transmitiendo", "003: streaming") }
+        else { symbol = "waveform.circle"; tip = L("003: conectado, en reposo", "003: connected, idle") }
         item.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)
         item.button?.image?.isTemplate = true
         item.button?.toolTip = tip
 
         if notifyOn {
-            if let was = wasPresent, was != present { post(present ? "Digi 003 conectado" : "Digi 003 desconectado", present ? "El 003 volvió a aparecer en el bus FireWire." : "Revisa el cable FireWire y que el 003 esté encendido.") }
-            if present, let was = wasLocked, was != locked { post(locked ? "Reloj externo recuperado" : "Se perdió el reloj externo", locked ? "El 003 está enganchado otra vez." : "El 003 no recibe \(clockNames[min(clock, 3)]). Revisa el cable óptico o la frecuencia de la interfaz maestra.") }
+            if let was = wasPresent, was != present { post(present ? L("Digi 003 conectado", "Digi 003 connected") : L("Digi 003 desconectado", "Digi 003 disconnected"), present ? L("El 003 volvió a aparecer en el bus FireWire.", "The 003 is back on the FireWire bus.") : L("Revisa el cable FireWire y que el 003 esté encendido.", "Check the FireWire cable and that the 003 is powered on.")) }
+            if present, let was = wasLocked, was != locked { post(locked ? L("Reloj externo recuperado", "External clock recovered") : L("Se perdió el reloj externo", "External clock lost"), locked ? L("El 003 está enganchado otra vez.", "The 003 is locked again.") : L("El 003 no recibe \(clockNames[min(clock, 3)]). Revisa el cable óptico o la frecuencia de la interfaz maestra.", "The 003 is not receiving \(clockNames[min(clock, 3)]). Check the optical cable or the clock master's sample rate.")) }
         }
         if notifyOn, bus != wasBus {
             switch bus {
-            case .hung: post("El Digi 003 no responde", "Está conectado al FireWire pero no contesta. Apágalo, espera 10 segundos y préndelo.")
-            case .notResponding: post("El Digi 003 dejó de transmitir", "El driver no logra arrancar el stream. Prueba \"Reiniciar 003\"; si no funciona, apágalo y préndelo.")
-            case .ok where wasBus == .hung || wasBus == .notResponding: post("Digi 003 recuperado", "El 003 volvió a responder.")
+            case .hung: post(L("El Digi 003 no responde", "The Digi 003 is not responding"), L("Está conectado al FireWire pero no contesta. Apágalo, espera 10 segundos y préndelo.", "It is on the FireWire bus but does not answer. Turn it off, wait 10 seconds and turn it back on."))
+            case .notResponding: post(L("El Digi 003 dejó de transmitir", "The Digi 003 stopped streaming"), L("El driver no logra arrancar el stream. Prueba \"Reiniciar 003\"; si no funciona, apágalo y préndelo.", "The driver cannot start the stream. Try \"Restart 003\"; if that fails, power-cycle it."))
+            case .ok where wasBus == .hung || wasBus == .notResponding: post(L("Digi 003 recuperado", "Digi 003 recovered"), L("El 003 volvió a responder.", "The 003 is responding again."))
             default: break
             }
         }
@@ -409,11 +431,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let wantAwake = preventSleep && present && route != 0
         if wantAwake && sleepAssertion == 0 {
-            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), "Digi 003: previos por ADAT" as CFString, &sleepAssertion)
+            IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn), L("Digi 003: previos por ADAT", "Digi 003: preamps over ADAT") as CFString, &sleepAssertion)
         } else if !wantAwake && sleepAssertion != 0 { IOPMAssertionRelease(sleepAssertion); sleepAssertion = 0 }
 
         midi.attach()
-        keepAlive.update(want: present && (route != 0 || midi.running))
+        if !headless { keepAlive.update(want: present && (route != 0 || midi.running)) }
     }
 
     func post(_ title: String, _ body: String) {
@@ -440,14 +462,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let dev = Digi003.find() else {
             switch bus {
             case .noAdapter:
-                menu.addItem(disabled: "Digi 003 Rack — no hay adaptador FireWire")
-                menu.addItem(disabled: "Conecta el adaptador Thunderbolt→FireWire en un puerto TRASERO")
+                menu.addItem(disabled: L("Digi 003 Rack — no hay adaptador FireWire", "Digi 003 Rack — no FireWire adapter"))
+                menu.addItem(disabled: L("Conecta el adaptador Thunderbolt→FireWire en un puerto TRASERO", "Plug the Thunderbolt→FireWire adapter into a real Thunderbolt port"))
             case .hung:
-                menu.addItem(disabled: "⚠︎ Digi 003 Rack — conectado pero NO RESPONDE")
-                menu.addItem(disabled: "Apágalo, espera 10 segundos y préndelo")
+                menu.addItem(disabled: L("⚠︎ Digi 003 Rack — conectado pero NO RESPONDE", "⚠︎ Digi 003 Rack — connected but NOT RESPONDING"))
+                menu.addItem(disabled: L("Apágalo, espera 10 segundos y préndelo", "Turn it off, wait 10 seconds and turn it back on"))
             default:
-                menu.addItem(disabled: "Digi 003 Rack — no conectado")
-                menu.addItem(disabled: "Revisa que esté encendido y el cable FireWire (se afloja fácil)")
+                menu.addItem(disabled: L("Digi 003 Rack — no conectado", "Digi 003 Rack — not connected"))
+                menu.addItem(disabled: L("Revisa que esté encendido y el cable FireWire (se afloja fácil)", "Check that it is on and the FireWire cable (it comes loose easily)"))
             }
             footer(); return
         }
@@ -460,21 +482,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let lowLat = st["lowLatency"] as? Bool ?? false
         let clients = Int(st["clients"] as? Double ?? 0)
 
-        menu.addItem(disabled: "Digi 003 Rack — " + (streaming ? "transmitiendo" : (st["asleep"] as? Bool == true ? "Mac en reposo" : "conectado, en reposo")))
+        menu.addItem(disabled: "Digi 003 Rack — " + (streaming ? L("transmitiendo", "streaming") : (st["asleep"] as? Bool == true ? L("Mac en reposo", "Mac asleep") : L("conectado, en reposo", "connected, idle"))))
         if bus == .notResponding {
-            menu.addItem(disabled: "⚠︎ No logra transmitir: usa \"Reiniciar 003\"; si sigue, apágalo y préndelo")
+            menu.addItem(disabled: L("⚠︎ No logra transmitir: usa \"Reiniciar 003\"; si sigue, apágalo y préndelo", "⚠︎ Not streaming: use \"Restart 003\"; if it persists, power-cycle it"))
         }
-        var line = String(format: "%.1f kHz · reloj %@", rate / 1000, clockNames[min(max(clock, 0), 3)])
+        var line = String(format: L("%.1f kHz · reloj %@", "%.1f kHz · clock %@"), rate / 1000, clockNames[min(max(clock, 0), 3)])
         if streaming && clock != 0 {
             if st["extDetected"] as? Bool == true {
                 let er = st["extRate"] as? Double ?? 0
-                line += er == rate ? " · enganchado ✓" : String(format: " · llega %.1f kHz ⚠︎", er / 1000)
-            } else { line += " · sin señal ⚠︎" }
+                line += er == rate ? L(" · enganchado ✓", " · locked ✓") : String(format: L(" · llega %.1f kHz ⚠︎", " · receiving %.1f kHz ⚠︎"), er / 1000)
+            } else { line += L(" · sin señal ⚠︎", " · no signal ⚠︎") }
         }
         menu.addItem(disabled: line)
         if streaming {
-            var info = clients > 0 ? "\(clients) app(s) usando el 003" : (route != 0 ? "sin apps (modo previos)" : "sin apps (MIDI)")
-            if let ms = st["loopMs"] as? Double, route != 0 { info += String(format: " · previos +%.1f ms", ms) }
+            var info = clients > 0 ? L("\(clients) app(s) usando el 003", "\(clients) app(s) using the 003") : (route != 0 ? L("sin apps (modo previos)", "no apps (preamp mode)") : L("sin apps (MIDI)", "no apps (MIDI)"))
+            if let ms = st["loopMs"] as? Double, route != 0 { info += String(format: L(" · previos +%.1f ms", " · preamps +%.1f ms"), ms) }
             let errs = Int(st["rxErrors"] as? Double ?? 0) + Int(st["rxOverruns"] as? Double ?? 0)
             if errs > 0 { info += " · \(errs) err." }
             menu.addItem(disabled: info)
@@ -489,22 +511,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ADAT routing
         let adat = NSMenu()
-        for (title, value, tip) in [("Desde el DAW (interfaz normal)", 0, "Las salidas ADAT 1-8 del 003 llevan lo que mande tu DAW"),
-                                    ("Previos 1-8 → salida ADAT", 8, "Las entradas analógicas 1-8 salen por ADAT 1-8, aunque ninguna app use el 003"),
-                                    ("Previos 1-4 → salida ADAT, DAW en 5-8", 4, "Analógicas 1-4 por ADAT 1-4; ADAT 5-8 quedan para el DAW")] {
+        for (title, value, tip) in [(L("Desde el DAW (interfaz normal)", "From the DAW (normal interface)"), 0, L("Las salidas ADAT 1-8 del 003 llevan lo que mande tu DAW", "The 003 ADAT outputs 1-8 carry what your DAW sends")),
+                                    (L("Previos 1-8 → salida ADAT", "Preamps 1-8 → ADAT out"), 8, L("Las entradas analógicas 1-8 salen por ADAT 1-8, aunque ninguna app use el 003", "Analog inputs 1-8 go out ADAT 1-8, even when no app uses the 003")),
+                                    (L("Previos 1-4 → salida ADAT, DAW en 5-8", "Preamps 1-4 → ADAT out, DAW on 5-8"), 4, L("Analógicas 1-4 por ADAT 1-4; ADAT 5-8 quedan para el DAW", "Analog 1-4 on ADAT 1-4; ADAT 5-8 stay with the DAW"))] {
             let m = NSMenuItem(title: title, action: #selector(setRoute(_:)), keyEquivalent: "")
             m.target = self; m.tag = value; m.state = value == route ? .on : .off; m.toolTip = tip; m.isEnabled = optical == 0
             adat.addItem(m)
         }
-        menu.addItem(submenu: "Salida ADAT" + (route != 0 ? " (previos)" : ""), adat)
+        menu.addItem(submenu: L("Salida ADAT", "ADAT output") + (route != 0 ? L(" (previos)", " (preamps)") : ""), adat)
 
         let lat = NSMenu()
-        for (title, value) in [("Segura (~7.5 ms)", false), ("Baja (~5.5 ms, más riesgo de clics)", true)] {
+        for (title, value) in [(L("Segura (~7.5 ms)", "Safe (~7.5 ms)"), false), (L("Baja (~5.5 ms, más riesgo de clics)", "Low (~5.5 ms, more risk of clicks)"), true)] {
             let m = NSMenuItem(title: title, action: #selector(setLatency(_:)), keyEquivalent: "")
             m.target = self; m.representedObject = value; m.state = value == lowLat ? .on : .off
             lat.addItem(m)
         }
-        menu.addItem(submenu: "Latencia", lat)
+        menu.addItem(submenu: L("Latencia", "Latency"), lat)
 
         let clockMenu = NSMenu()
         for (i, name) in clockNames.enumerated() {
@@ -513,7 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.isEnabled = !(optical == 1 && i == 2)
             clockMenu.addItem(m)
         }
-        menu.addItem(submenu: "Reloj", clockMenu)
+        menu.addItem(submenu: L("Reloj", "Clock"), clockMenu)
 
         let rateMenu = NSMenu()
         for r in [44100.0, 48000.0] {
@@ -521,33 +543,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.target = self; m.representedObject = r; m.state = r == rate ? .on : .off
             rateMenu.addItem(m)
         }
-        let rateItem = menu.addItem(submenu: "Frecuencia", rateMenu)
-        if clock != 0 { rateItem.toolTip = "Con reloj externo el 003 sigue la frecuencia que le llega" }
+        let rateItem = menu.addItem(submenu: L("Frecuencia", "Sample rate"), rateMenu)
+        if clock != 0 { rateItem.toolTip = L("Con reloj externo el 003 sigue la frecuencia que le llega", "With an external clock the 003 follows the incoming rate") }
 
         let opt = NSMenu()
-        for (title, value) in [("ADAT (8 canales)", 0), ("S/PDIF óptico (2 canales)", 1)] {
+        for (title, value) in [(L("ADAT (8 canales)", "ADAT (8 channels)"), 0), (L("S/PDIF óptico (2 canales)", "Optical S/PDIF (2 channels)"), 1)] {
             let m = NSMenuItem(title: title, action: #selector(setOptical(_:)), keyEquivalent: "")
             m.target = self; m.tag = value; m.state = value == optical ? .on : .off
             opt.addItem(m)
         }
-        menu.addItem(submenu: "Puerto óptico", opt)
+        menu.addItem(submenu: L("Puerto óptico", "Optical port"), opt)
 
         menu.addItem(.separator())
-        menu.addItem(toggle: "MIDI (puertos \"Digi 003 MIDI\")", on: midi.running, target: self, action: #selector(toggleMidi))
-        menu.addItem(toggle: "Evitar reposo con previos activos", on: preventSleep, target: self, action: #selector(togglePreventSleep))
-        menu.addItem(toggle: "Avisos", on: notifyOn, target: self, action: #selector(toggleNotify))
-        let rs = NSMenuItem(title: "Reiniciar 003", action: #selector(restart), keyEquivalent: ""); rs.target = self; rs.isEnabled = streaming || bus == .notResponding
+        menu.addItem(toggle: L("MIDI (puertos \"Digi 003 MIDI\")", "MIDI (\"Digi 003 MIDI\" ports)"), on: midi.running, target: self, action: #selector(toggleMidi))
+        menu.addItem(toggle: L("Evitar reposo con previos activos", "Prevent sleep while preamps are active"), on: preventSleep, target: self, action: #selector(togglePreventSleep))
+        menu.addItem(toggle: L("Avisos", "Notifications"), on: notifyOn, target: self, action: #selector(toggleNotify))
+        let rs = NSMenuItem(title: L("Reiniciar 003", "Restart 003"), action: #selector(restart), keyEquivalent: ""); rs.target = self; rs.isEnabled = streaming || bus == .notResponding
         menu.addItem(rs)
         footer()
     }
 
     func footer() {
         menu.addItem(.separator())
-        let ams = NSMenuItem(title: "Abrir Configuración de Audio MIDI", action: #selector(openAMS), keyEquivalent: ""); ams.target = self
+        let ams = NSMenuItem(title: L("Abrir Configuración de Audio MIDI", "Open Audio MIDI Setup"), action: #selector(openAMS), keyEquivalent: ""); ams.target = self
         menu.addItem(ams)
-        menu.addItem(toggle: "Abrir al iniciar sesión", on: FileManager.default.fileExists(atPath: agentURL.path), target: self, action: #selector(toggleLogin))
+        menu.addItem(toggle: L("Abrir al iniciar sesión", "Open at login"), on: FileManager.default.fileExists(atPath: agentURL.path), target: self, action: #selector(toggleLogin))
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: L("Salir", "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
     // MARK: actions

@@ -16,6 +16,8 @@ cat > "$A/Info.plist" <<PL
 <key>CFBundleShortVersionString</key><string>0.1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>CFBundleLocalizations</key><array><string>en</string><string>es</string></array>
 </dict></plist>
 PL
 swiftc -O -target arm64-apple-macos14 -o "$A/MacOS/Digi003Menu" menubar/main.swift -framework AppKit -framework CoreAudio -framework CoreMIDI -framework IOKit -framework UserNotifications
